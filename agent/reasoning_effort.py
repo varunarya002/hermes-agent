@@ -36,7 +36,13 @@ Rules for call sites:
 
 from __future__ import annotations
 
+import re
 from typing import Optional, Sequence
+
+#: K3 slug detector — matches ``k3`` as a delimited token (``k3``,
+#: ``k3-256k``, ``kimi-k3``, ``kimi-k3-cot``) without matching K2-era names
+#: (``kimi-k2.6``). From #76427 by @ruizanthony.
+_KIMI_K3_SLUG_RE = re.compile(r"(?:^|[^a-z0-9])k3(?:[^a-z0-9]|$)")
 
 # Canonical low→high ordering used for nearest-level clamping. Superset of
 # hermes_constants.VALID_REASONING_EFFORTS ("none" included so an explicit
@@ -89,6 +95,13 @@ KIMI_K3_EFFORTS: tuple[str, ...] = ("low", "high", "max")
 #: Moonshot/Kimi K2-era models: low/medium/high.
 KIMI_K2_EFFORTS: tuple[str, ...] = ("low", "medium", "high")
 
+#: OpenCode "Ox Alpha" stealth model (x-preview-f-free): thinking is always
+#: on and the wire accepts exactly low/high/max — medium/none/xhigh 400 with
+#: "This model always engages in thinking and cannot be disabled; please use
+#: low, high, or max" (verified live 2026-08-21). xhigh rounds up to max.
+OX_ALPHA_EFFORTS: tuple[str, ...] = ("low", "high", "max")
+OX_ALPHA_OVERRIDES: dict[str, str] = {"xhigh": "max"}
+
 #: Tencent TokenHub: low/medium/high.
 TOKENHUB_EFFORTS: tuple[str, ...] = ("low", "medium", "high")
 
@@ -103,6 +116,13 @@ KIMI_K3_OVERRIDES: dict[str, str] = {"medium": "high", "xhigh": "max"}
 #: docs). ``xhigh`` requests the top tier, not the floor.
 GLM52_EFFORTS: tuple[str, ...] = ("high", "max")
 GLM52_OVERRIDES: dict[str, str] = {"xhigh": "max"}
+
+#: GLM-5.3 widens the knob to a graded low/medium/high/max scale — verified
+#: live on api.z.ai/api/coding/paas/v4 (issue #91789, 2026-08-21): every
+#: level accepted with monotonic reasoning-token scaling (low=4, medium=11,
+#: high=98, max=125 on the probe prompt). ``xhigh`` requests the top tier.
+GLM53_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "max")
+GLM53_OVERRIDES: dict[str, str] = {"xhigh": "max"}
 
 #: DeepSeek V4 OpenAI-compat endpoint: low/medium/high/max; ``xhigh``
 #: requests the top tier (matches the shipped profile mapping).
@@ -124,11 +144,14 @@ SOLAR_EFFORTS: tuple[str, ...] = ("low", "medium", "high")
 def kimi_supported_efforts(model: Optional[str]) -> tuple[str, ...]:
     """Supported effort set for a Moonshot/Kimi model slug.
 
-    K3 is served as the bare slug ``k3`` and the ``kimi-k3*`` aliases; its
-    documented set is low/high/max. Everything earlier speaks low/medium/high.
+    K3 is served as the bare slug ``k3``, plan variants like ``k3-256k``,
+    and the ``kimi-k3*`` aliases; its documented set is low/high/max.
+    Everything earlier speaks low/medium/high. Boundary-matched so K2-era
+    names (``kimi-k2.6``) never match (detection regex from #76427 by
+    @ruizanthony).
     """
     m = (model or "").strip().lower().split("/")[-1]
-    if m == "k3" or m.startswith("kimi-k3"):
+    if _KIMI_K3_SLUG_RE.search(m):
         return KIMI_K3_EFFORTS
     return KIMI_K2_EFFORTS
 
